@@ -1,10 +1,7 @@
 use serde::Serialize;
-use std::{
-    fmt::Display,
-    fs::{self, File},
-    io::{self, BufRead, BufReader},
-    path::Path,
-};
+use std::{fmt::Display, fs, io, path::Path};
+
+use super::utils::{count_lines_in_file, is_hidden, should_ignore};
 
 #[derive(Debug, Serialize)]
 struct FileReport {
@@ -20,9 +17,9 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn from_path(path: &str) -> io::Result<Self> {
+    pub fn from_path(path: &str, ignore: &[String]) -> io::Result<Self> {
         let root = path.to_string();
-        let (directories, files) = Self::get_directory_contents(Path::new(path))?;
+        let (directories, files) = Self::get_directory_contents(Path::new(path), ignore)?;
 
         let result = Self {
             root,
@@ -33,16 +30,28 @@ impl Tree {
         Ok(result)
     }
 
-    fn get_directory_contents(path: &Path) -> io::Result<(Option<Vec<Directory>>, Option<Files>)> {
+    fn get_directory_contents(
+        path: &Path,
+        ignore: &[String],
+    ) -> io::Result<(Option<Vec<Directory>>, Option<Files>)> {
         let mut directories = vec![];
         let mut files = vec![];
 
         for entry in fs::read_dir(path)? {
             let entry = entry?;
+
+            if is_hidden(&entry) {
+                continue;
+            }
+
+            if should_ignore(&entry, ignore) {
+                continue;
+            }
+
             let entry_path = entry.path();
 
             if entry_path.is_dir() {
-                let sub_directory = Self::get_directory(&entry_path)?;
+                let sub_directory = Self::get_directory(&entry_path, ignore)?;
                 directories.push(sub_directory);
             } else if entry_path.is_file() {
                 let file_report = Self::get_file_report(&entry_path)?;
@@ -64,20 +73,18 @@ impl Tree {
         ))
     }
 
-    fn get_directory(path: &Path) -> io::Result<Directory> {
+    fn get_directory(path: &Path, ignore: &[String]) -> io::Result<Directory> {
         let root = path.to_string_lossy().to_string();
-        let (sub_directories, files) = Self::get_directory_contents(path)?;
+        let (sub_directories, files) = Self::get_directory_contents(path, ignore)?;
         Ok(Directory {
             root,
-            sub_directories: sub_directories.map(Box::new),
+            sub_directories,
             files,
         })
     }
 
     fn get_file_report(path: &Path) -> io::Result<FileReport> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let lines_count = reader.lines().count();
+        let lines_count = count_lines_in_file(path)?;
 
         Ok(FileReport {
             path: path.to_string_lossy().to_string(),
@@ -88,14 +95,14 @@ impl Tree {
 
 impl Display for Tree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\n", self.root)?;
+        writeln!(f, "{}", self.root)?;
         if let Some(directories) = &self.directories {
             for directory in directories {
                 write!(f, "{}", directory)?;
             }
         }
         if let Some(files) = &self.files {
-            write!(f, "{}", files)?;
+            writeln!(f, "{}", files)?;
         }
         Ok(())
     }
@@ -104,22 +111,22 @@ impl Display for Tree {
 #[derive(Debug, Serialize)]
 struct Directory {
     root: String,
-    sub_directories: Option<Box<Vec<Directory>>>,
+    sub_directories: Option<Vec<Directory>>,
     files: Option<Files>,
 }
 
 impl Display for Directory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "    {}\n", self.root)?;
+        writeln!(f, "    {}", self.root)?;
 
         if let Some(directories) = &self.sub_directories {
             for directory in directories.iter() {
-                write!(f, "    {}\n", directory)?;
+                writeln!(f, "    {}", directory)?;
             }
         }
 
         if let Some(files) = &self.files {
-            write!(f, "{}\n", files)?;
+            writeln!(f, "{}", files)?;
         }
         Ok(())
     }
@@ -131,7 +138,7 @@ struct Files(Vec<FileReport>);
 impl Display for Files {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for file_report in &self.0 {
-            write!(f, "    {}: {}\n", file_report.path, file_report.lines_count)?;
+            writeln!(f, "    {}: {}", file_report.path, file_report.lines_count)?;
         }
         Ok(())
     }

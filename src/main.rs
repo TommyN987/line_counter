@@ -8,7 +8,6 @@ use clap::Parser;
 use serde::Serialize;
 
 mod args;
-mod counter;
 mod report;
 
 #[derive(Debug, Serialize)]
@@ -19,19 +18,19 @@ enum Report {
 }
 
 impl Report {
-    fn from_args(path: &str, structure: Structure) -> io::Result<Self> {
+    fn from_args(path: &str, structure: Structure, ignore: &[String]) -> io::Result<Self> {
         match structure {
             Structure::Analytics => {
-                let analytics = Analytics::process(path);
+                let analytics = Analytics::from_path(path, ignore)?;
                 Ok(Report::Analytics(analytics))
             }
             Structure::Tree => {
-                let tree = Tree::from_path(path)?;
+                let tree = Tree::from_path(path, ignore)?;
                 Ok(Report::Tree(tree))
             }
             Structure::Full => {
-                let analytics = Analytics::process(path);
-                let tree = Tree::from_path(path)?;
+                let analytics = Analytics::from_path(path, ignore)?;
+                let tree = Tree::from_path(path, ignore)?;
                 Ok(Report::Full(Full::new(analytics, tree)))
             }
         }
@@ -57,9 +56,10 @@ fn main() -> io::Result<()> {
         path,
         target,
         structure,
+        ignore,
     } = Args::parse();
 
-    let result = Report::from_args(&path, structure)?;
+    let result = Report::from_args(&path, structure, &ignore)?;
 
     match target {
         Target::Stdout => println!("{}", result),

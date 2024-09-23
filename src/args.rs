@@ -10,6 +10,8 @@ pub struct Args {
     pub target: Target,
     #[arg(short, long, default_value_t = Structure::Analytics)]
     pub structure: Structure,
+    #[arg(short, long)]
+    pub ignore: Vec<String>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
